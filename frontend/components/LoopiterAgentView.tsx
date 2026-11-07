@@ -29,20 +29,25 @@ export default function LoopiterAgentView() {
     workerOutputs: []
   });
 
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef = useRef<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   // Timer handler
   useEffect(() => {
     if (isExecuting) {
-      timerRef.current = setInterval(() => {
+      timerRef.current = window.setInterval(() => {
         setSecondsElapsed(prev => prev + 1);
       }, 1000);
     } else {
-      if (timerRef.current) clearInterval(timerRef.current);
+      if (timerRef.current !== null) {
+        window.clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
     }
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      if (timerRef.current !== null) {
+        window.clearInterval(timerRef.current);
+      }
     };
   }, [isExecuting]);
 
