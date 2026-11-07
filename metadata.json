@@ -1,0 +1,6 @@
+{
+  "name": "Alpha Loopiter Workspace",
+  "description": "Workspace initialized for Alpha Loopiter AI Agent on GitHub and Render.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
