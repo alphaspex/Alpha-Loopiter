@@ -16,6 +16,7 @@ from database_io import (
     init_db_io,
     save_task_session_io,
     get_task_sessions_io,
+    get_task_session_by_id_io,
     save_message_io,
     get_task_messages_io,
     truncate_task_messages_from_io,
@@ -117,10 +118,14 @@ def list_tasks():
 
 @app.get("/api/tasks/{task_id}")
 def get_task_detail(task_id: str):
+    session_info = get_task_session_by_id_io(task_id)
     messages = get_task_messages_io(task_id)
     summaries = get_summaries_io(task_id)
     return {
         "task_id": task_id,
+        "title": session_info.get("title") if session_info else "Task",
+        "current_stage": session_info.get("current_stage") if session_info else "stage_1_questions",
+        "status": session_info.get("status") if session_info else "in_progress",
         "messages": messages,
         "summaries": summaries,
         "is_active_running": get_active_running_task_id() == task_id
@@ -207,6 +212,21 @@ def step_deep_task(payload: StepTaskRequest):
             "next_stage": "running",
             "background": True,
             "output_text": "⚡ Master Plan Approved! Alpha Loopiter has queued all Phase Goals, Tiny Goals, and Worker/Auditor calls and is executing them in background...",
+            "requires_user_action": False
+        }
+
+    # If user approved the final product
+    if payload.stage == "stage_8_final_product_approved":
+        save_message_io(payload.task_id, role="user", content="APPROVED - Final Deliverable Accepted", stage="final_approval")
+        completion_text = "🎯 **Task Complete!** Deliverable finalized and archived in PostgreSQL persistent memory."
+        save_message_io(payload.task_id, role="assistant", content=completion_text, stage="completed")
+        save_task_session_io(payload.task_id, title=payload.task_description[:50], status="completed", current_stage="completed")
+        return {
+            "task_id": payload.task_id,
+            "status": "completed",
+            "stage": "completed",
+            "next_stage": "completed",
+            "output_text": completion_text,
             "requires_user_action": False
         }
 

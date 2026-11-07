@@ -130,6 +130,9 @@ export default function LoopiterAgentView() {
         const detail = await fetchTaskDetailIO(activeId);
         setMessages(detail.messages);
         setSummaries(detail.summaries);
+        if (detail.current_stage) {
+          setState(prev => ({ ...prev, currentStage: detail.current_stage! }));
+        }
         if (!detail.is_active_running) {
           setIsExecuting(false);
           loadChatHistory();
@@ -141,6 +144,9 @@ export default function LoopiterAgentView() {
           const detail = await fetchTaskDetailIO(activeTaskId);
           setMessages(detail.messages);
           setSummaries(detail.summaries);
+          if (detail.current_stage) {
+            setState(prev => ({ ...prev, currentStage: detail.current_stage! }));
+          }
           loadChatHistory();
         }
       }
@@ -182,9 +188,9 @@ export default function LoopiterAgentView() {
 
     const taskObj = tasks.find(t => t.id === taskId);
     setState({
-      currentStage: taskObj?.current_stage || 'in_progress',
+      currentStage: detail.current_stage || taskObj?.current_stage || 'in_progress',
       taskId: taskId,
-      taskDescription: taskObj?.title || '',
+      taskDescription: detail.title || taskObj?.title || '',
       workerOutputs: []
     });
   };
@@ -243,6 +249,7 @@ export default function LoopiterAgentView() {
     const { prompts } = await fetchSystemPromptsIO();
 
     if (!activeTaskId) {
+      // Branch 1: Start Brand New Deep Task
       setSecondsElapsed(0);
       const tempUserMsg: TaskMessage = {
         id: `msg_u_${Date.now()}`,
@@ -274,49 +281,100 @@ export default function LoopiterAgentView() {
       });
 
       await loadChatHistory();
-    } else {
-      const nextStepNum = messages.length + 1;
-      const userMsg: TaskMessage = {
-        id: `msg_u_${Date.now()}`,
-        role: 'user',
-        content: userText,
-        step_number: nextStepNum,
-        stage: state.currentStage
-      };
-      setMessages(prev => [...prev, userMsg]);
-
-      const res = await stepDeepTaskIO(
-        activeTaskId,
-        state.currentStage,
-        state.taskDescription || userText,
-        userText,
-        {
-          concept_plan: state.conceptPlan,
-          master_plan: state.masterPlan,
-          phases_raw: state.phasesRaw
-        },
-        prompts
-      );
-
-      if (res.output_text) {
-        const agentMsg: TaskMessage = {
-          id: `msg_a_${Date.now()}`,
-          role: 'assistant',
-          content: res.output_text,
-          step_number: nextStepNum + 1,
-          stage: res.stage
-        };
-        setMessages(prev => [...prev, agentMsg]);
-      }
-
-      setState(prev => ({
-        ...prev,
-        currentStage: res.next_stage || prev.currentStage
-      }));
-
-      await loadChatHistory();
+      setIsExecuting(false);
+      return;
     }
 
+    // Branch 2: Follow-up in existing active task
+    let targetStage = state.currentStage;
+    const customData: any = {
+      concept_plan: state.conceptPlan,
+      master_plan: state.masterPlan,
+      phases_raw: state.phasesRaw
+    };
+
+    const normalized = userText.trim().toLowerCase();
+    const isApprovedWord =
+      normalized === 'approve' ||
+      normalized === 'approved' ||
+      normalized === 'yes' ||
+      normalized === 'ok' ||
+      normalized === 'proceed';
+
+    if (state.currentStage === 'stage_1_questions') {
+      targetStage = 'stage_2_concept_approval';
+      customData.questions_answers = userText;
+    } else if (state.currentStage === 'stage_2_concept_approval') {
+      if (isApprovedWord) {
+        targetStage = 'stage_3_detailed_approval';
+      } else {
+        targetStage = 'stage_2_concept_approval';
+        customData.user_feedback = userText;
+      }
+    } else if (state.currentStage === 'stage_3_detailed_approval') {
+      if (isApprovedWord) {
+        targetStage = 'stage_4_phase_breakdown_audit';
+      } else {
+        targetStage = 'stage_3_detailed_approval';
+        customData.user_feedback = userText;
+      }
+    } else if (state.currentStage === 'stage_8_final_product') {
+      if (isApprovedWord) {
+        targetStage = 'stage_8_final_product_approved';
+      } else {
+        targetStage = 'stage_8_final_product';
+        customData.user_feedback = userText;
+      }
+    }
+
+    const nextStepNum = messages.length + 1;
+    const userMsg: TaskMessage = {
+      id: `msg_u_${Date.now()}`,
+      role: 'user',
+      content: userText,
+      step_number: nextStepNum,
+      stage: targetStage
+    };
+    setMessages(prev => [...prev, userMsg]);
+
+    const res = await stepDeepTaskIO(
+      activeTaskId,
+      targetStage,
+      state.taskDescription || userText,
+      userText,
+      customData,
+      prompts
+    );
+
+    if (res.output_text) {
+      const agentMsg: TaskMessage = {
+        id: `msg_a_${Date.now()}`,
+        role: 'assistant',
+        content: res.output_text,
+        step_number: nextStepNum + 1,
+        stage: targetStage
+      };
+      setMessages(prev => [...prev, agentMsg]);
+    }
+
+    if (res.background) {
+      setIsExecuting(true);
+      setGlobalActiveTaskId(activeTaskId);
+    } else {
+      setIsExecuting(false);
+    }
+
+    setState(prev => {
+      const updated = { ...prev, currentStage: res.next_stage || prev.currentStage };
+      if (targetStage === 'stage_2_concept_approval' && res.output_text) updated.conceptPlan = res.output_text;
+      if (targetStage === 'stage_3_detailed_approval' && res.output_text) updated.masterPlan = res.output_text;
+      if (targetStage === 'stage_4_phase_breakdown_audit' && res.output_text) updated.phasesRaw = res.output_text;
+      if (targetStage === 'stage_5_tiny_goals_audit' && res.output_text) updated.tinyGoalsText = res.output_text;
+      if (targetStage === 'stage_8_final_product' && res.output_text) updated.finalProduct = res.output_text;
+      return updated;
+    });
+
+    await loadChatHistory();
     setIsExecuting(false);
   };
 
@@ -722,9 +780,29 @@ export default function LoopiterAgentView() {
                         <div className="whitespace-pre-wrap font-sans">{m.content}</div>
                       )}
 
-                      {/* Approval Gates */}
+                      {/* Approval Gates & Action Buttons */}
                       {!isUser && idx === messages.length - 1 && !isExecuting && !isBackgroundActive && (
                         <div className="mt-3 pt-2.5 border-t border-slate-800/80 space-y-2">
+                          {state.currentStage === 'stage_1_questions' && (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-[11px] text-indigo-300 font-mono">
+                                Answer questions below or proceed:
+                              </span>
+                              <button
+                                onClick={() =>
+                                  handleTriggerStageStep(
+                                    'Proceed with standard best-practice defaults and generate concept plan.',
+                                    'stage_2_concept_approval'
+                                  )
+                                }
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-sm"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                Generate Concept Plan (Defaults)
+                              </button>
+                            </div>
+                          )}
+
                           {state.currentStage === 'stage_2_concept_approval' && (
                             <div className="flex flex-wrap items-center gap-2">
                               <button
@@ -751,7 +829,7 @@ export default function LoopiterAgentView() {
                           )}
 
                           {state.currentStage === 'stage_3_detailed_approval' && (
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                               <button
                                 onClick={() =>
                                   handleTriggerStageStep('APPROVED', 'stage_4_phase_breakdown_audit')
@@ -761,13 +839,49 @@ export default function LoopiterAgentView() {
                                 <CheckCircle2 className="w-3.5 h-3.5" />
                                 Approve Master Plan & Start Background Queue
                               </button>
+                              <button
+                                onClick={() =>
+                                  handleTriggerStageStep(
+                                    'Revise master plan with deeper technical breakdown and more granular phases',
+                                    'stage_3_detailed_approval'
+                                  )
+                                }
+                                className="px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg"
+                              >
+                                Request Revision
+                              </button>
                             </div>
                           )}
 
-                          {state.currentStage === 'completed' && (
+                          {state.currentStage === 'stage_8_final_product' && (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                onClick={() =>
+                                  handleTriggerStageStep('APPROVED', 'stage_8_final_product_approved')
+                                }
+                                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg shadow-sm"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                Approve Final Product Deliverable
+                              </button>
+                              <button
+                                onClick={() =>
+                                  handleTriggerStageStep(
+                                    'Revise and polish final product deliverable with extra edge cases and documentation',
+                                    'stage_8_final_product'
+                                  )
+                                }
+                                className="px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg"
+                              >
+                                Request Polish
+                              </button>
+                            </div>
+                          )}
+
+                          {(state.currentStage === 'completed' || state.currentStage === 'stage_8_final_product_approved') && (
                             <div className="flex items-center gap-2 text-xs font-mono text-emerald-400">
                               <CheckCircle2 className="w-4 h-4" />
-                              <span>Deep Task Complete! All audited micro-goals verified.</span>
+                              <span>Deep Task Complete! All audited deliverables verified & signed off.</span>
                             </div>
                           )}
                         </div>

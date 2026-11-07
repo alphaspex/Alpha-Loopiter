@@ -108,6 +108,24 @@ def get_task_sessions_io() -> List[Dict[str, Any]]:
     finally:
         session.close()
 
+def get_task_session_by_id_io(task_id: str) -> Optional[Dict[str, Any]]:
+    """Pure I/O function to get single task session by id."""
+    session = SessionLocal()
+    try:
+        t = session.query(TaskSessionDB).filter(TaskSessionDB.id == task_id).first()
+        if not t:
+            return None
+        return {
+            "id": t.id,
+            "title": t.title,
+            "status": t.status,
+            "current_stage": t.current_stage,
+            "created_at": t.created_at.isoformat(),
+            "updated_at": t.updated_at.isoformat()
+        }
+    finally:
+        session.close()
+
 def save_message_io(task_id: str, role: str, content: str, stage: Optional[str] = None) -> Dict[str, Any]:
     """Pure I/O function to append a message to task session history."""
     session = SessionLocal()

@@ -214,7 +214,13 @@ export async function fetchTasksIO(): Promise<TaskSession[]> {
   return [];
 }
 
-export async function fetchTaskDetailIO(taskId: string): Promise<{ messages: TaskMessage[]; summaries: TaskSummary[]; is_active_running?: boolean }> {
+export async function fetchTaskDetailIO(taskId: string): Promise<{
+  messages: TaskMessage[];
+  summaries: TaskSummary[];
+  is_active_running?: boolean;
+  current_stage?: string;
+  title?: string;
+}> {
   try {
     const res = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`);
     if (res.ok) {
@@ -222,7 +228,9 @@ export async function fetchTaskDetailIO(taskId: string): Promise<{ messages: Tas
       return {
         messages: data.messages || [],
         summaries: data.summaries || [],
-        is_active_running: !!data.is_active_running
+        is_active_running: !!data.is_active_running,
+        current_stage: data.current_stage,
+        title: data.title
       };
     }
   } catch (err) {
