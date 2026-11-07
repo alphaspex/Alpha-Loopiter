@@ -28,12 +28,12 @@ import {
   Bot,
   User,
   Sparkles,
-  Layers,
-  ChevronRight,
-  Eye,
   PanelLeftClose,
   PanelLeft,
-  AlertCircle
+  ChevronRight,
+  Code2,
+  TrendingUp,
+  Cpu
 } from 'lucide-react';
 
 interface StageState {
@@ -49,9 +49,16 @@ interface StageState {
 }
 
 export default function LoopiterAgentView() {
+  // Mobile check for initial sidebar posture
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 768;
+    }
+    return false;
+  });
+
   // Chat History Sidebar State
   const [tasks, setTasks] = useState<TaskSession[]>([]);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // Active Chat State
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
@@ -82,9 +89,13 @@ export default function LoopiterAgentView() {
   const pollIntervalRef = useRef<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
-  // Live Timer
+  // Derived execution truth
+  const isBackgroundActive = Boolean(globalActiveTaskId && activeTaskId && globalActiveTaskId === activeTaskId);
+  const isAnotherTaskRunning = Boolean(globalActiveTaskId && globalActiveTaskId !== activeTaskId);
+
+  // Live Timer Controller
   useEffect(() => {
-    if (isExecuting || (globalActiveTaskId && globalActiveTaskId === activeTaskId)) {
+    if (isExecuting || isBackgroundActive) {
       if (!timerRef.current) {
         timerRef.current = window.setInterval(() => {
           setSecondsElapsed(prev => prev + 1);
@@ -102,7 +113,7 @@ export default function LoopiterAgentView() {
         timerRef.current = null;
       }
     };
-  }, [isExecuting, globalActiveTaskId, activeTaskId]);
+  }, [isExecuting, isBackgroundActive]);
 
   // Load Tasks on Mount & Start Global Background Poller
   useEffect(() => {
@@ -114,7 +125,7 @@ export default function LoopiterAgentView() {
       setGlobalActiveTaskId(activeId);
 
       // If active running task is the current open chat, sync its messages from DB
-      if (activeId && activeId === activeTaskId) {
+      if (activeId && activeTaskId && activeId === activeTaskId) {
         setIsExecuting(true);
         const detail = await fetchTaskDetailIO(activeId);
         setMessages(detail.messages);
@@ -162,6 +173,8 @@ export default function LoopiterAgentView() {
   const handleSelectChat = async (taskId: string) => {
     setActiveTaskId(taskId);
     setEditingMsgId(null);
+    if (window.innerWidth < 768) setSidebarOpen(false); // Close mobile drawer on pick
+
     const detail = await fetchTaskDetailIO(taskId);
     setMessages(detail.messages);
     setSummaries(detail.summaries);
@@ -189,6 +202,7 @@ export default function LoopiterAgentView() {
     setEditingMsgId(null);
     setSecondsElapsed(0);
     setIsExecuting(false);
+    if (window.innerWidth < 768) setSidebarOpen(false);
     setState({
       currentStage: 'idle',
       taskId: null,
@@ -217,7 +231,7 @@ export default function LoopiterAgentView() {
   const handleSendMessage = async () => {
     if (!inputPrompt.trim() || isExecuting) return;
 
-    if (globalActiveTaskId && globalActiveTaskId !== activeTaskId) {
+    if (isAnotherTaskRunning) {
       alert('Another task is currently running in background. Only one task can execute at a time.');
       return;
     }
@@ -229,7 +243,6 @@ export default function LoopiterAgentView() {
     const { prompts } = await fetchSystemPromptsIO();
 
     if (!activeTaskId) {
-      // Starting a brand new deep task session
       setSecondsElapsed(0);
       const tempUserMsg: TaskMessage = {
         id: `msg_u_${Date.now()}`,
@@ -262,7 +275,6 @@ export default function LoopiterAgentView() {
 
       await loadChatHistory();
     } else {
-      // Continuing existing chat thread
       const nextStepNum = messages.length + 1;
       const userMsg: TaskMessage = {
         id: `msg_u_${Date.now()}`,
@@ -312,7 +324,7 @@ export default function LoopiterAgentView() {
   const handleTriggerStageStep = async (userAnswer: string, targetStage: string, customData?: any) => {
     if (!activeTaskId || isExecuting) return;
 
-    if (globalActiveTaskId && globalActiveTaskId !== activeTaskId) {
+    if (isAnotherTaskRunning) {
       alert('Another task is currently running in background. Only one task can execute at a time.');
       return;
     }
@@ -354,7 +366,6 @@ export default function LoopiterAgentView() {
       setMessages(prev => [...prev, agentMsg]);
     }
 
-    // If starting autonomous background pipeline, keep execution state active for poller
     if (res.background) {
       setIsExecuting(true);
       setGlobalActiveTaskId(activeTaskId);
@@ -384,7 +395,7 @@ export default function LoopiterAgentView() {
   const handleSaveAndResend = async (msgId: string) => {
     if (!activeTaskId || !editingText.trim()) return;
 
-    if (globalActiveTaskId && globalActiveTaskId !== activeTaskId) {
+    if (isAnotherTaskRunning) {
       alert('Another task is currently running in background. Only one task can execute at a time.');
       return;
     }
@@ -393,7 +404,6 @@ export default function LoopiterAgentView() {
     const newText = editingText.trim();
     setEditingMsgId(null);
 
-    // Call backend endpoint to delete old trailing messages from DB and re-run agent
     const res = await editMessageIO(activeTaskId, msgId, newText);
 
     if (res.success && res.messages) {
@@ -406,7 +416,6 @@ export default function LoopiterAgentView() {
         }));
       }
     } else {
-      // Local UI fallback if offline
       const index = messages.findIndex(m => m.id === msgId);
       if (index !== -1) {
         const sliced = messages.slice(0, index);
@@ -427,49 +436,55 @@ export default function LoopiterAgentView() {
   const activeTaskObject = tasks.find(t => t.id === globalActiveTaskId);
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-2xl flex-col">
+    <div className="flex flex-col flex-1 h-[calc(100dvh-7.5rem)] sm:h-[calc(100vh-8.5rem)] bg-slate-950 rounded-xl sm:rounded-2xl border border-slate-800/80 overflow-hidden shadow-2xl relative w-full">
       {/* Global Single Active Task Notification Banner */}
-      {globalActiveTaskId && (
-        <div className="bg-indigo-950 border-b border-indigo-800 px-4 py-2 flex items-center justify-between text-xs text-indigo-200">
-          <div className="flex items-center gap-2">
-            <Zap className="w-4 h-4 text-indigo-400 animate-spin shrink-0" />
-            <span>
-              <strong>Active Background Task</strong>: "{activeTaskObject?.title || globalActiveTaskId}" is executing AI calls in queue.
-              Only 1 task executes at a time.
+      {isAnotherTaskRunning && (
+        <div className="bg-indigo-950/90 border-b border-indigo-800/80 px-3 sm:px-4 py-2 flex items-center justify-between text-xs text-indigo-200 shrink-0 gap-2">
+          <div className="flex items-center gap-2 truncate">
+            <Zap className="w-3.5 h-3.5 text-indigo-400 animate-spin shrink-0" />
+            <span className="truncate">
+              <strong>Active Task in Background</strong>: "{activeTaskObject?.title || globalActiveTaskId}"
             </span>
           </div>
-          {globalActiveTaskId !== activeTaskId && (
-            <button
-              onClick={() => handleSelectChat(globalActiveTaskId)}
-              className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[11px] font-semibold whitespace-nowrap"
-            >
-              Switch to Running Chat
-            </button>
-          )}
+          <button
+            onClick={() => handleSelectChat(globalActiveTaskId!)}
+            className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[11px] font-semibold whitespace-nowrap shrink-0"
+          >
+            Switch to Chat
+          </button>
         </div>
       )}
 
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      {/* Main Container with Sidebar + Chat */}
+      <div className="flex flex-1 min-h-0 relative w-full overflow-hidden">
+        {/* Mobile Backdrop for Sidebar Drawer */}
+        {sidebarOpen && (
+          <div
+            onClick={() => setSidebarOpen(false)}
+            className="md:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-30 transition-opacity"
+          />
+        )}
+
         {/* 1. Left Sidebar: Chat History */}
-        <div
+        <aside
           className={`${
-            sidebarOpen ? 'w-72 sm:w-80' : 'w-0'
-          } transition-all duration-200 ease-in-out border-r border-slate-800 bg-slate-900/95 flex flex-col shrink-0 overflow-hidden`}
+            sidebarOpen ? 'translate-x-0 w-72 sm:w-80' : '-translate-x-full md:translate-x-0 md:w-0'
+          } fixed md:relative inset-y-0 left-0 z-40 md:z-auto transition-all duration-200 ease-in-out border-r border-slate-800 bg-slate-900 flex flex-col shrink-0 overflow-hidden shadow-2xl md:shadow-none`}
         >
           {/* Sidebar Header */}
-          <div className="p-3 border-b border-slate-800 flex items-center justify-between gap-2">
+          <div className="p-3 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0">
             <button
               onClick={handleNewChat}
               disabled={!!globalActiveTaskId}
-              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-sm transition-colors disabled:opacity-40"
             >
-              <Plus className="w-4 h-4" />
-              New Deep Task Chat
+              <Plus className="w-3.5 h-3.5" />
+              New Deep Task
             </button>
             <button
               onClick={() => setSidebarOpen(false)}
-              className="p-2 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition-colors"
-              title="Collapse Sidebar"
+              className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition-colors"
+              title="Close Sidebar"
             >
               <PanelLeftClose className="w-4 h-4" />
             </button>
@@ -478,23 +493,24 @@ export default function LoopiterAgentView() {
           {/* Chat Sessions List */}
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
             <div className="px-2 py-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-              Chat History ({tasks.length})
+              Recent Chats ({tasks.length})
             </div>
 
             {tasks.length === 0 ? (
               <div className="p-4 text-center text-xs text-slate-500">
-                No saved chats yet. Start a deep task to begin!
+                No saved chats yet. Start a task to begin!
               </div>
             ) : (
               tasks.map(t => {
                 const isRunning = t.id === globalActiveTaskId;
+                const isSelected = activeTaskId === t.id;
                 return (
                   <div
                     key={t.id}
                     onClick={() => handleSelectChat(t.id)}
                     className={`group flex items-center justify-between p-2.5 rounded-lg cursor-pointer border transition-all text-xs ${
-                      activeTaskId === t.id
-                        ? 'bg-indigo-950/70 border-indigo-700/80 text-indigo-100 shadow-sm'
+                      isSelected
+                        ? 'bg-indigo-950/80 border-indigo-700/80 text-indigo-100 shadow-sm'
                         : 'bg-slate-950/40 border-transparent text-slate-300 hover:bg-slate-800/60 hover:text-slate-100'
                     }`}
                   >
@@ -509,7 +525,7 @@ export default function LoopiterAgentView() {
                     <button
                       onClick={e => handleDeleteChat(e, t.id)}
                       className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-400 p-1 transition-opacity shrink-0"
-                      title="Delete chat from database"
+                      title="Delete chat"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -519,54 +535,56 @@ export default function LoopiterAgentView() {
             )}
           </div>
 
-          {/* Memory Indicator in Sidebar Footer */}
-          <div className="p-3 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between bg-slate-950/50">
-            <span className="flex items-center gap-1.5 font-mono">
-              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-              20-Msg Summarizer Active
+          {/* Sidebar Footer */}
+          <div className="p-3 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between bg-slate-950/60 shrink-0">
+            <span className="flex items-center gap-1.5 font-mono text-[10px]">
+              <Sparkles className="w-3 h-3 text-emerald-400" />
+              Memory Summaries Active
             </span>
           </div>
-        </div>
+        </aside>
 
-        {/* 2. Main Chat Thread Viewport */}
-        <div className="flex-1 flex flex-col bg-slate-950 min-w-0 overflow-hidden relative">
+        {/* 2. Main Chat Workspace */}
+        <section className="flex-1 flex flex-col bg-slate-950 min-w-0 overflow-hidden w-full relative">
           {/* Chat Top Bar */}
-          <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3 min-w-0">
+          <div className="px-3 sm:px-4 py-2.5 border-b border-slate-800/80 bg-slate-900/60 flex items-center justify-between gap-3 shrink-0">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
               {!sidebarOpen && (
                 <button
                   onClick={() => setSidebarOpen(true)}
-                  className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition-colors"
-                  title="Open Chat History"
+                  className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition-colors shrink-0"
+                  title="Open History"
                 >
                   <PanelLeft className="w-4 h-4" />
                 </button>
               )}
-              <div className="min-w-0">
-                <h2 className="text-sm font-bold text-slate-100 truncate flex items-center gap-2">
-                  <span>{state.taskDescription || 'New Alpha Loopiter Task'}</span>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-xs sm:text-sm font-bold text-slate-100 truncate">
+                  {state.taskDescription || 'New Deep Task'}
                 </h2>
-                <p className="text-[11px] text-slate-400 font-mono truncate">
-                  Status:{' '}
-                  <span className="text-indigo-400 font-semibold">
-                    {globalActiveTaskId === activeTaskId ? 'executing_in_background' : state.currentStage}
+                <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono truncate">
+                  <span>
+                    Status:{' '}
+                    <strong className="text-indigo-400">
+                      {isBackgroundActive ? 'running' : state.currentStage === 'idle' ? 'ready' : state.currentStage}
+                    </strong>
                   </span>
-                </p>
+                </div>
               </div>
             </div>
 
-            {/* Real-Time Deep Task Timer & Status */}
-            <div className="flex items-center gap-3 shrink-0">
+            {/* Timer & Summaries */}
+            <div className="flex items-center gap-2 shrink-0">
               {summaries.length > 0 && (
-                <span className="hidden sm:inline-flex text-[11px] font-mono text-emerald-400 bg-emerald-950/50 border border-emerald-800/80 rounded px-2 py-0.5">
+                <span className="hidden sm:inline-flex text-[10px] font-mono text-emerald-400 bg-emerald-950/50 border border-emerald-800/80 rounded px-2 py-0.5">
                   💾 {summaries.length} Summaries
                 </span>
               )}
 
-              <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1 font-mono text-xs text-emerald-400">
+              <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 font-mono text-xs text-emerald-400">
                 <Clock
                   className={`w-3.5 h-3.5 ${
-                    isExecuting || globalActiveTaskId === activeTaskId ? 'animate-pulse text-emerald-400' : 'text-slate-400'
+                    isExecuting || isBackgroundActive ? 'animate-pulse text-emerald-400' : 'text-slate-500'
                   }`}
                 />
                 <span className="font-bold">{formatTimer(secondsElapsed)}</span>
@@ -574,39 +592,51 @@ export default function LoopiterAgentView() {
             </div>
           </div>
 
-          {/* Message Stream */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
+          {/* Messages Thread */}
+          <div className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-4 w-full">
             {messages.length === 0 ? (
-              /* Zero-State Welcome */
-              <div className="h-full flex flex-col items-center justify-center max-w-lg mx-auto text-center space-y-4 p-6">
-                <div className="w-12 h-12 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shadow-lg">
-                  <Zap className="w-6 h-6" />
+              /* Refined Empty / Welcome State */
+              <div className="h-full flex flex-col items-center justify-center max-w-lg mx-auto text-center space-y-5 px-3 py-6">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                  <Cpu className="w-5 h-5" />
                 </div>
-                <h3 className="text-lg font-bold text-slate-100">Alpha Loopiter Deep Task Agent</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Describe your complex task below. Loopiter asks clarifying questions, generates a concept & master plan,
-                  breaks down tiny sub-goals, and autonomously audits each execution call in background until the goal is 100% complete.
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left w-full pt-2">
+                <div className="space-y-1">
+                  <h3 className="text-base sm:text-lg font-bold text-slate-100">Alpha Loopiter Deep Task Agent</h3>
+                  <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
+                    Autonomous multi-call execution with self-auditing, clarifying questions, and persistent PostgreSQL memory.
+                  </p>
+                </div>
+
+                {/* Prompt Inspiration Chips */}
+                <div className="grid grid-cols-1 gap-2 text-left w-full pt-1">
                   <button
                     onClick={() =>
                       setInputPrompt(
                         'Build a production FastAPI backend with PostgreSQL persistence and OAuth authentication'
                       )
                     }
-                    className="p-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-xs text-slate-300 transition-colors"
+                    className="p-3 bg-slate-900 hover:bg-slate-800/80 border border-slate-800/80 rounded-xl text-xs text-slate-300 transition-all flex items-start gap-2.5 text-left"
                   >
-                    🚀 Build FastAPI backend with PostgreSQL & Auth
+                    <Code2 className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-semibold text-slate-200">Production FastAPI & PostgreSQL Backend</div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">Architecture, models, audit loop, and deliverable</div>
+                    </div>
                   </button>
+
                   <button
                     onClick={() =>
                       setInputPrompt(
                         'Design a high-frequency trading risk simulation agent in Python with automated auditing'
                       )
                     }
-                    className="p-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-xs text-slate-300 transition-colors"
+                    className="p-3 bg-slate-900 hover:bg-slate-800/80 border border-slate-800/80 rounded-xl text-xs text-slate-300 transition-all flex items-start gap-2.5 text-left"
                   >
-                    📈 Design Python risk simulation agent
+                    <TrendingUp className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-semibold text-slate-200">Financial Risk Simulation Engine</div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">Micro-tasks execution with automated verification</div>
+                    </div>
                   </button>
                 </div>
               </div>
@@ -616,24 +646,22 @@ export default function LoopiterAgentView() {
                 const isEditing = editingMsgId === m.id;
 
                 return (
-                  <div key={m.id || idx} className={`flex gap-3 max-w-4xl ${isUser ? 'ml-auto' : 'mr-auto'}`}>
-                    {/* Avatar */}
+                  <div key={m.id || idx} className={`flex gap-2.5 max-w-3xl ${isUser ? 'ml-auto' : 'mr-auto'} w-full`}>
                     {!isUser && (
-                      <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white shrink-0 mt-0.5 shadow-sm">
-                        <Bot className="w-4 h-4" />
+                      <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center text-white shrink-0 mt-0.5 shadow-sm text-xs">
+                        <Bot className="w-3.5 h-3.5" />
                       </div>
                     )}
 
-                    {/* Message Bubble */}
                     <div
-                      className={`rounded-2xl p-4 text-xs sm:text-sm leading-relaxed border transition-all ${
+                      className={`rounded-2xl p-3.5 text-xs sm:text-sm leading-relaxed border transition-all ${
                         isUser
-                          ? 'bg-indigo-950/80 border-indigo-800/80 text-indigo-50 max-w-xl'
+                          ? 'bg-indigo-950/80 border-indigo-800/80 text-indigo-50 ml-auto max-w-[88%] sm:max-w-xl'
                           : 'bg-slate-900 border-slate-800 text-slate-200 w-full'
                       }`}
                     >
-                      {/* Bubble Header */}
-                      <div className="flex items-center justify-between gap-3 text-[11px] font-mono mb-2 text-slate-400 border-b border-slate-800/50 pb-1.5">
+                      {/* Message Bubble Header */}
+                      <div className="flex items-center justify-between gap-3 text-[10px] font-mono mb-1.5 text-slate-400 border-b border-slate-800/40 pb-1">
                         <span className="font-semibold flex items-center gap-1.5">
                           {isUser ? (
                             <>
@@ -643,18 +671,17 @@ export default function LoopiterAgentView() {
                             <>
                               <Bot className="w-3 h-3 text-indigo-400" /> Alpha Loopiter
                               {m.stage && (
-                                <span className="ml-1 text-[10px] text-slate-500 font-normal">[{m.stage}]</span>
+                                <span className="ml-1 text-[9px] text-slate-500 font-normal">[{m.stage}]</span>
                               )}
                             </>
                           )}
                         </span>
 
-                        {/* Edit Button for User Messages */}
                         {isUser && !isEditing && (
                           <button
                             onClick={() => handleStartEdit(m)}
-                            className="flex items-center gap-1 text-[11px] text-indigo-300 hover:text-white transition-colors"
-                            title="Edit this message and re-run chat from here (deleting subsequent messages from DB)"
+                            className="flex items-center gap-1 text-[10px] text-indigo-300 hover:text-white transition-colors"
+                            title="Edit message and re-run chat (deletes trailing messages)"
                           >
                             <Edit2 className="w-3 h-3" />
                             Edit & Resend
@@ -664,30 +691,29 @@ export default function LoopiterAgentView() {
 
                       {/* Content or Edit Box */}
                       {isEditing ? (
-                        <div className="space-y-3 pt-1">
-                          <p className="text-[11px] text-amber-300 font-mono">
-                            ⚠️ Editing will delete all subsequent messages from the database and restart the loop from this step.
+                        <div className="space-y-2 pt-1">
+                          <p className="text-[10px] text-amber-300 font-mono">
+                            ⚠️ Re-running will delete subsequent messages from database and continue from this edit.
                           </p>
                           <textarea
                             value={editingText}
                             onChange={e => setEditingText(e.target.value)}
                             rows={3}
-                            className="w-full bg-slate-950 border border-indigo-600 rounded-lg p-2.5 text-xs text-slate-100 font-sans focus:outline-none"
+                            className="w-full bg-slate-950 border border-indigo-600 rounded-lg p-2 text-xs text-slate-100 font-sans focus:outline-none"
                           />
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => handleSaveAndResend(m.id)}
                               disabled={isExecuting}
-                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-md"
+                              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-md"
                             >
-                              <Check className="w-3.5 h-3.5" />
-                              Save & Re-run Chat
+                              <Check className="w-3 h-3" />
+                              Save & Re-run
                             </button>
                             <button
                               onClick={() => setEditingMsgId(null)}
-                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-200"
+                              className="px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-200"
                             >
-                              <X className="w-3.5 h-3.5" />
                               Cancel
                             </button>
                           </div>
@@ -696,16 +722,16 @@ export default function LoopiterAgentView() {
                         <div className="whitespace-pre-wrap font-sans">{m.content}</div>
                       )}
 
-                      {/* Interactive Stage Approval Buttons inside Agent Message */}
-                      {!isUser && idx === messages.length - 1 && !isExecuting && (
-                        <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-2">
+                      {/* Approval Gates */}
+                      {!isUser && idx === messages.length - 1 && !isExecuting && !isBackgroundActive && (
+                        <div className="mt-3 pt-2.5 border-t border-slate-800/80 space-y-2">
                           {state.currentStage === 'stage_2_concept_approval' && (
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                               <button
                                 onClick={() =>
                                   handleTriggerStageStep('APPROVED', 'stage_3_detailed_approval')
                                 }
-                                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg shadow-sm"
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg shadow-sm"
                               >
                                 <CheckCircle2 className="w-3.5 h-3.5" />
                                 Approve Concept Plan
@@ -717,9 +743,9 @@ export default function LoopiterAgentView() {
                                     'stage_2_concept_approval'
                                   )
                                 }
-                                className="px-3.5 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg"
+                                className="px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg"
                               >
-                                Request Concept Revision
+                                Request Revision
                               </button>
                             </div>
                           )}
@@ -733,7 +759,7 @@ export default function LoopiterAgentView() {
                                 className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-sm"
                               >
                                 <CheckCircle2 className="w-3.5 h-3.5" />
-                                Approve Master Plan & Start Background Execution Queue
+                                Approve Master Plan & Start Background Queue
                               </button>
                             </div>
                           )}
@@ -748,10 +774,9 @@ export default function LoopiterAgentView() {
                       )}
                     </div>
 
-                    {/* User Avatar */}
                     {isUser && (
-                      <div className="w-8 h-8 rounded-lg bg-indigo-950 border border-indigo-700/80 flex items-center justify-center text-indigo-300 shrink-0 mt-0.5 shadow-sm">
-                        <User className="w-4 h-4" />
+                      <div className="w-7 h-7 rounded-lg bg-indigo-950 border border-indigo-700/80 flex items-center justify-center text-indigo-300 shrink-0 mt-0.5 text-xs shadow-sm">
+                        <User className="w-3.5 h-3.5" />
                       </div>
                     )}
                   </div>
@@ -759,20 +784,20 @@ export default function LoopiterAgentView() {
               })
             )}
 
-            {/* Working / Execution Loader */}
-            {(isExecuting || globalActiveTaskId === activeTaskId) && (
-              <div className="flex items-center gap-3 p-3 bg-slate-900 border border-slate-800 rounded-xl text-xs text-indigo-300 font-mono animate-pulse max-w-md">
-                <Zap className="w-4 h-4 text-indigo-400 animate-spin" />
-                <span>Alpha Loopiter is auditing and executing AI call queue in background...</span>
+            {/* Active Execution Indicator */}
+            {(isExecuting || isBackgroundActive) && (
+              <div className="flex items-center gap-2.5 p-3 bg-slate-900 border border-slate-800 rounded-xl text-xs text-indigo-300 font-mono animate-pulse max-w-sm">
+                <Zap className="w-3.5 h-3.5 text-indigo-400 animate-spin shrink-0" />
+                <span>Loopiter is executing AI call queue in background...</span>
               </div>
             )}
 
             <div ref={messagesEndRef} />
           </div>
 
-          {/* 3. Bottom Chat Input Bar */}
-          <div className="p-3 sm:p-4 border-t border-slate-800 bg-slate-900/80">
-            <div className="max-w-4xl mx-auto flex items-end gap-2 bg-slate-950 border border-slate-800 rounded-xl p-2 focus-within:border-indigo-600 transition-colors">
+          {/* Bottom Chat Input Box */}
+          <div className="p-2 sm:p-3 border-t border-slate-800/80 bg-slate-900/80 shrink-0">
+            <div className="max-w-3xl mx-auto flex items-end gap-2 bg-slate-950 border border-slate-800 rounded-xl p-1.5 focus-within:border-indigo-600 transition-colors">
               <textarea
                 value={inputPrompt}
                 onChange={e => setInputPrompt(e.target.value)}
@@ -782,11 +807,11 @@ export default function LoopiterAgentView() {
                     handleSendMessage();
                   }
                 }}
-                disabled={isExecuting || (!!globalActiveTaskId && globalActiveTaskId !== activeTaskId)}
+                disabled={isExecuting || isAnotherTaskRunning}
                 rows={1}
-                className="flex-1 bg-transparent border-0 text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none resize-none px-2 py-1 max-h-32 disabled:opacity-40"
+                className="flex-1 bg-transparent border-0 text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none resize-none px-2 py-1.5 max-h-28 disabled:opacity-40"
                 placeholder={
-                  globalActiveTaskId && globalActiveTaskId !== activeTaskId
+                  isAnotherTaskRunning
                     ? 'Another task is executing in background. Wait for completion...'
                     : messages.length === 0
                     ? 'Type your deep task to start the Loopiter agent...'
@@ -795,19 +820,19 @@ export default function LoopiterAgentView() {
               />
               <button
                 onClick={handleSendMessage}
-                disabled={!inputPrompt.trim() || isExecuting || (!!globalActiveTaskId && globalActiveTaskId !== activeTaskId)}
+                disabled={!inputPrompt.trim() || isExecuting || isAnotherTaskRunning}
                 className="p-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-40 transition-colors shrink-0"
-                title="Send message (Enter)"
+                title="Send message"
               >
-                <Send className="w-4 h-4" />
+                <Send className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
 
-          {/* Summary Inspector Modal */}
+          {/* Memory Summary Modal */}
           {inspectedSummary && (
-            <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-slate-900 border border-indigo-800 rounded-xl p-5 max-w-lg w-full space-y-4 shadow-2xl">
+            <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-3">
+              <div className="bg-slate-900 border border-indigo-800 rounded-xl p-4 max-w-md w-full space-y-3 shadow-2xl">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                   <span className="text-xs font-mono text-emerald-400 font-semibold">
                     Memory Tool Lookup: {inspectedSummary.summary_id}
@@ -820,7 +845,7 @@ export default function LoopiterAgentView() {
                   </button>
                 </div>
                 <p className="text-xs text-slate-300 italic">"{inspectedSummary.summary_text}"</p>
-                <div className="space-y-2 max-h-60 overflow-y-auto font-mono text-xs">
+                <div className="space-y-1.5 max-h-56 overflow-y-auto font-mono text-xs">
                   {inspectedSummary.messages?.map((m: any) => (
                     <div key={m.step} className="p-2 bg-slate-950 rounded border border-slate-800">
                       <span className="text-indigo-400 font-semibold">[Step {m.step} - {m.role}]: </span>
@@ -831,7 +856,7 @@ export default function LoopiterAgentView() {
               </div>
             </div>
           )}
-        </div>
+        </section>
       </div>
     </div>
   );
