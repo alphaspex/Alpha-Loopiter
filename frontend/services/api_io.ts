@@ -214,6 +214,63 @@ export async function fetchTasksIO(): Promise<TaskSession[]> {
   return [];
 }
 
+export async function fetchTaskDetailIO(taskId: string): Promise<{ messages: TaskMessage[]; summaries: TaskSummary[]; is_active_running?: boolean }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`);
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        messages: data.messages || [],
+        summaries: data.summaries || [],
+        is_active_running: !!data.is_active_running
+      };
+    }
+  } catch (err) {
+    console.warn("API fetch task detail fallback", err);
+  }
+  return { messages: [], summaries: [], is_active_running: false };
+}
+
+export async function deleteTaskIO(taskId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`, { method: "DELETE" });
+    return res.ok;
+  } catch (err) {
+    console.warn("API delete task fallback", err);
+    return true;
+  }
+}
+
+export async function fetchActiveRunningTaskIO(): Promise<string | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/deep-task/active`);
+    if (res.ok) {
+      const data = await res.json();
+      return data.active_task_id || null;
+    }
+  } catch (err) {
+    // offline fallback
+  }
+  return null;
+}
+
+export async function bulkDeleteTasksIO(taskIds: string[]): Promise<number> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/tasks/bulk-delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task_ids: taskIds })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.deleted_count || 0;
+    }
+  } catch (err) {
+    console.warn("API bulk delete fallback", err);
+  }
+  return taskIds.length;
+}
+
 export async function fetchSummaryDetailIO(summaryId: string) {
   try {
     const res = await fetch(`${API_BASE_URL}/api/summary-tool/${summaryId}`);

@@ -168,16 +168,53 @@ def truncate_task_messages_from_io(task_id: str, message_id: str) -> Dict[str, A
         if not target_msg:
             return {"success": False, "error": "Message not found"}
         
+        step_num = target_msg.step_number
         deleted_count = session.query(TaskMessageDB).filter(
             TaskMessageDB.task_id == task_id,
-            TaskMessageDB.step_number >= target_msg.step_number
+            TaskMessageDB.step_number >= step_num
+        ).delete()
+        
+        # Also delete any summaries that included truncated steps
+        session.query(TaskSummaryDB).filter(
+            TaskSummaryDB.task_id == task_id,
+            TaskSummaryDB.end_step >= step_num
         ).delete()
         
         session.commit()
-        return {"success": True, "deleted_count": deleted_count}
+        return {"success": True, "deleted_count": deleted_count, "truncated_from_step": step_num}
     except Exception as e:
         session.rollback()
         return {"success": False, "error": str(e)}
+    finally:
+        session.close()
+
+def delete_task_session_io(task_id: str) -> bool:
+    """Pure I/O function to delete an entire task session and all its messages."""
+    session = SessionLocal()
+    try:
+        session.query(TaskMessageDB).filter(TaskMessageDB.task_id == task_id).delete()
+        session.query(TaskSummaryDB).filter(TaskSummaryDB.task_id == task_id).delete()
+        session.query(TaskSessionDB).filter(TaskSessionDB.id == task_id).delete()
+        session.commit()
+        return True
+    except Exception as e:
+        session.rollback()
+        return False
+    finally:
+        session.close()
+
+def bulk_delete_tasks_io(task_ids: List[str]) -> int:
+    """Pure I/O function to delete multiple task sessions from database."""
+    session = SessionLocal()
+    try:
+        session.query(TaskMessageDB).filter(TaskMessageDB.task_id.in_(task_ids)).delete(synchronize_session=False)
+        session.query(TaskSummaryDB).filter(TaskSummaryDB.task_id.in_(task_ids)).delete(synchronize_session=False)
+        deleted = session.query(TaskSessionDB).filter(TaskSessionDB.id.in_(task_ids)).delete(synchronize_session=False)
+        session.commit()
+        return deleted
+    except Exception as e:
+        session.rollback()
+        return 0
     finally:
         session.close()
 
