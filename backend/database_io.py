@@ -293,6 +293,9 @@ def get_full_chat_from_summary_id_io(summary_id: str) -> Dict[str, Any]:
     finally:
         session.close()
 
+# Alias for agent tool lookup
+agent_tool_get_full_chat_from_summary_io = get_full_chat_from_summary_id_io
+
 def save_prompt_settings_io(prompts: Dict[str, str]) -> bool:
     """Pure I/O function to save custom system prompts to database."""
     session = SessionLocal()

@@ -27,7 +27,7 @@ from database_io import (
     bulk_delete_tasks_io
 )
 from prompt_io import get_default_prompts_io
-from memory_io import check_and_generate_summary_io, agent_tool_get_full_chat_from_summary_id_io
+from memory_io import check_and_generate_summary_io
 from agent_loop_io import (
     execute_agent_stage_io,
     get_active_running_task_id,
@@ -306,7 +306,7 @@ def summary_tool_lookup(summary_id: str):
     """
     Agent tool API endpoint: Fetches full 20-message block for given summary ID.
     """
-    result = agent_tool_get_full_chat_from_summary_io(summary_id)
+    result = get_full_chat_from_summary_id_io(summary_id)
     if not result.get("found"):
         raise HTTPException(status_code=404, detail=result.get("error"))
     return result
