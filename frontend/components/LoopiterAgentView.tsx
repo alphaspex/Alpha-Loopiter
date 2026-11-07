@@ -29,7 +29,7 @@ export default function LoopiterAgentView() {
     workerOutputs: []
   });
 
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   // Timer handler
